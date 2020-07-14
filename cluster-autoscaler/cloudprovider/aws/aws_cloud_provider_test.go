@@ -57,6 +57,11 @@ func (a *AutoScalingMock) TerminateInstanceInAutoScalingGroup(input *autoscaling
 	return args.Get(0).(*autoscaling.TerminateInstanceInAutoScalingGroupOutput), nil
 }
 
+func (a *AutoScalingMock) DescribeScalingActivitiesPages(i *autoscaling.DescribeScalingActivitiesInput, fn func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool) error {
+	args := a.Called(i, fn)
+	return args.Error(0)
+}
+
 type EC2Mock struct {
 	mock.Mock
 }
@@ -123,6 +128,19 @@ func testNamedDescribeAutoScalingGroupsOutput(groupName string, desiredCap int64
 				MinSize:              aws.Int64(1),
 				MaxSize:              aws.Int64(5),
 				Instances:            instances,
+			},
+		},
+	}
+}
+
+func testNamedDescribeScalingActivitiesOutput(groupName string) *autoscaling.DescribeScalingActivitiesOutput {
+	return &autoscaling.DescribeScalingActivitiesOutput{
+		Activities: []*autoscaling.Activity{
+			{
+				ActivityId:           aws.String("abc-123"),
+				AutoScalingGroupName: aws.String(groupName),
+				StatusCode:           aws.String("Failed"),
+				StatusMessage:        aws.String("Could not launch Spot Instances. SpotMaxPriceTooLow - Your Spot request price of 0.01 is lower than the minimum required Spot request fulfillment price of 0.0677. Launching EC2 instance failed."),
 			},
 		},
 	}
@@ -199,6 +217,16 @@ func TestAutoDiscoveredNodeGroups(t *testing.T) {
 		fn(testNamedDescribeAutoScalingGroupsOutput("auto-asg", 1, "test-instance-id"), false)
 	}).Return(nil)
 
+	service.On("DescribeScalingActivitiesPages",
+		&autoscaling.DescribeScalingActivitiesInput{
+			AutoScalingGroupName: aws.String("auto-asg"),
+		},
+		mock.AnythingOfType("func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool"),
+	).Run(func(args mock.Arguments) {
+		fn := args.Get(1).(func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool)
+		fn(testNamedDescribeScalingActivitiesOutput("auto-asg"), false)
+	}).Return(nil)
+
 	provider.Refresh()
 
 	nodeGroups := provider.NodeGroups()
@@ -226,6 +254,16 @@ func TestNodeGroupForNode(t *testing.T) {
 	).Run(func(args mock.Arguments) {
 		fn := args.Get(1).(func(*autoscaling.DescribeAutoScalingGroupsOutput, bool) bool)
 		fn(testNamedDescribeAutoScalingGroupsOutput("test-asg", 1, "test-instance-id"), false)
+	}).Return(nil)
+
+	service.On("DescribeScalingActivitiesPages",
+		&autoscaling.DescribeScalingActivitiesInput{
+			AutoScalingGroupName: aws.String("test-asg"),
+		},
+		mock.AnythingOfType("func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool"),
+	).Run(func(args mock.Arguments) {
+		fn := args.Get(1).(func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool)
+		fn(testNamedDescribeScalingActivitiesOutput("test-asg"), false)
 	}).Return(nil)
 
 	provider.Refresh()
@@ -303,6 +341,16 @@ func TestTargetSize(t *testing.T) {
 		fn(testNamedDescribeAutoScalingGroupsOutput("test-asg", 2, "test-instance-id", "second-test-instance-id"), false)
 	}).Return(nil)
 
+	service.On("DescribeScalingActivitiesPages",
+		&autoscaling.DescribeScalingActivitiesInput{
+			AutoScalingGroupName: aws.String("test-asg"),
+		},
+		mock.AnythingOfType("func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool"),
+	).Run(func(args mock.Arguments) {
+		fn := args.Get(1).(func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool)
+		fn(testNamedDescribeScalingActivitiesOutput("test-asg"), false)
+	}).Return(nil)
+
 	provider.Refresh()
 
 	targetSize, err := asgs[0].TargetSize()
@@ -332,6 +380,16 @@ func TestIncreaseSize(t *testing.T) {
 	).Run(func(args mock.Arguments) {
 		fn := args.Get(1).(func(*autoscaling.DescribeAutoScalingGroupsOutput, bool) bool)
 		fn(testNamedDescribeAutoScalingGroupsOutput("test-asg", 2, "test-instance-id", "second-test-instance-id"), false)
+	}).Return(nil)
+
+	service.On("DescribeScalingActivitiesPages",
+		&autoscaling.DescribeScalingActivitiesInput{
+			AutoScalingGroupName: aws.String("test-asg"),
+		},
+		mock.AnythingOfType("func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool"),
+	).Run(func(args mock.Arguments) {
+		fn := args.Get(1).(func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool)
+		fn(testNamedDescribeScalingActivitiesOutput("test-asg"), false)
 	}).Return(nil)
 
 	provider.Refresh()
@@ -364,6 +422,16 @@ func TestBelongs(t *testing.T) {
 	).Run(func(args mock.Arguments) {
 		fn := args.Get(1).(func(*autoscaling.DescribeAutoScalingGroupsOutput, bool) bool)
 		fn(testNamedDescribeAutoScalingGroupsOutput("test-asg", 1, "test-instance-id"), false)
+	}).Return(nil)
+
+	service.On("DescribeScalingActivitiesPages",
+		&autoscaling.DescribeScalingActivitiesInput{
+			AutoScalingGroupName: aws.String("test-asg"),
+		},
+		mock.AnythingOfType("func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool"),
+	).Run(func(args mock.Arguments) {
+		fn := args.Get(1).(func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool)
+		fn(testNamedDescribeScalingActivitiesOutput("test-asg"), false)
 	}).Return(nil)
 
 	provider.Refresh()
@@ -402,6 +470,16 @@ func TestDeleteNodes(t *testing.T) {
 	}).Return(&autoscaling.TerminateInstanceInAutoScalingGroupOutput{
 		Activity: &autoscaling.Activity{Description: aws.String("Deleted instance")},
 	})
+
+	service.On("DescribeScalingActivitiesPages",
+		&autoscaling.DescribeScalingActivitiesInput{
+			AutoScalingGroupName: aws.String("test-asg"),
+		},
+		mock.AnythingOfType("func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool"),
+	).Run(func(args mock.Arguments) {
+		fn := args.Get(1).(func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool)
+		fn(testNamedDescribeScalingActivitiesOutput("test-asg"), false)
+	}).Return(nil)
 
 	// Look up the current number of instances...
 	var expectedInstancesCount int64 = 2
@@ -462,6 +540,16 @@ func TestDeleteNodesAfterMultipleRefreshes(t *testing.T) {
 	).Run(func(args mock.Arguments) {
 		fn := args.Get(1).(func(*autoscaling.DescribeAutoScalingGroupsOutput, bool) bool)
 		fn(testNamedDescribeAutoScalingGroupsOutput("test-asg", 2, "test-instance-id", "second-test-instance-id"), false)
+	}).Return(nil)
+
+	service.On("DescribeScalingActivitiesPages",
+		&autoscaling.DescribeScalingActivitiesInput{
+			AutoScalingGroupName: aws.String("test-asg"),
+		},
+		mock.AnythingOfType("func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool"),
+	).Run(func(args mock.Arguments) {
+		fn := args.Get(1).(func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool)
+		fn(testNamedDescribeScalingActivitiesOutput("test-asg"), false)
 	}).Return(nil)
 
 	provider.Refresh()

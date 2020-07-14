@@ -320,3 +320,8 @@ func (ng *magnumNodeGroup) MinSize() int {
 func (ng *magnumNodeGroup) TargetSize() (int, error) {
 	return *ng.targetSize, nil
 }
+
+// CanProvideCapacity not implemented
+func (ng *magnumNodeGroup) CanProvideCapacity() (bool, error) {
+	return false, cloudprovider.ErrNotImplemented
+}

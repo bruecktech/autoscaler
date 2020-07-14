@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"k8s.io/autoscaler/cluster-autoscaler/cloudprovider"
 	"k8s.io/autoscaler/cluster-autoscaler/config/dynamic"
@@ -70,6 +71,7 @@ type asg struct {
 	LaunchTemplate          *launchTemplate
 	MixedInstancesPolicy    *mixedInstancesPolicy
 	Tags                    []*autoscaling.TagDescription
+	LastLaunchFailure       *autoscaling.Activity
 }
 
 func newASGCache(service autoScalingWrapper, explicitSpecs []string, autoDiscoverySpecs []cloudprovider.ASGAutoDiscoveryConfig) (*asgCache, error) {
@@ -415,6 +417,10 @@ func (m *asgCache) createPlaceholdersForDesiredNonStartedInstances(groups []*aut
 	return groups
 }
 
+func (m *asgCache) canProvideCapacity(asg *asg) bool {
+	return asg.LastLaunchFailure == nil || time.Since(*asg.LastLaunchFailure.EndTime) > time.Minute*5
+}
+
 func (m *asgCache) buildAsgFromAWS(g *autoscaling.Group) (*asg, error) {
 	spec := dynamic.NodeGroupSpec{
 		Name:               aws.StringValue(g.AutoScalingGroupName),
@@ -427,6 +433,11 @@ func (m *asgCache) buildAsgFromAWS(g *autoscaling.Group) (*asg, error) {
 		return nil, fmt.Errorf("failed to create node group spec: %v", verr)
 	}
 
+	lastLaunchFailure, err := m.service.getLastLaunchFailure(g)
+	if err != nil {
+		return nil, err
+	}
+
 	asg := &asg{
 		AwsRef:  AwsRef{Name: spec.Name},
 		minSize: spec.MinSize,
@@ -436,6 +447,7 @@ func (m *asgCache) buildAsgFromAWS(g *autoscaling.Group) (*asg, error) {
 		AvailabilityZones:       aws.StringValueSlice(g.AvailabilityZones),
 		LaunchConfigurationName: aws.StringValue(g.LaunchConfigurationName),
 		Tags:                    g.Tags,
+		LastLaunchFailure:       lastLaunchFailure,
 	}
 
 	if g.LaunchTemplate != nil {

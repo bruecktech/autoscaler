@@ -31,6 +31,7 @@ type autoScaling interface {
 	DescribeTagsPages(input *autoscaling.DescribeTagsInput, fn func(*autoscaling.DescribeTagsOutput, bool) bool) error
 	SetDesiredCapacity(input *autoscaling.SetDesiredCapacityInput) (*autoscaling.SetDesiredCapacityOutput, error)
 	TerminateInstanceInAutoScalingGroup(input *autoscaling.TerminateInstanceInAutoScalingGroupInput) (*autoscaling.TerminateInstanceInAutoScalingGroupOutput, error)
+	DescribeScalingActivitiesPages(input *autoscaling.DescribeScalingActivitiesInput, fn func(*autoscaling.DescribeScalingActivitiesOutput, bool) bool) error
 }
 
 // autoScalingWrapper provides several utility methods over the auto-scaling service provided by AWS SDK
@@ -92,6 +93,44 @@ func (m *autoScalingWrapper) getAutoscalingGroupsByNames(names []string) ([]*aut
 	}
 
 	return asgs, nil
+}
+
+func (m *autoScalingWrapper) getLastLaunchFailure(asg *autoscaling.Group) (*autoscaling.Activity, error) {
+
+	klog.V(4).Infof("getLastLaunchFailure called for %s", *asg.AutoScalingGroupName)
+
+	activities := make([]*autoscaling.Activity, 0)
+	launchFailures := make([]*autoscaling.Activity, 0)
+
+	input := &autoscaling.DescribeScalingActivitiesInput{
+		AutoScalingGroupName: asg.AutoScalingGroupName,
+		MaxRecords:           aws.Int64(1),
+	}
+
+	if err := m.DescribeScalingActivitiesPages(input, func(output *autoscaling.DescribeScalingActivitiesOutput, _ bool) bool {
+		klog.V(4).Infof("DescribeScalingActivitiesPages returned a page")
+		activities = append(activities, output.Activities...)
+
+		// we only need the latest one
+		return false
+	}); err != nil {
+		return nil, err
+	}
+
+	for _, activity := range activities {
+		if *activity.StatusCode == "Failed" {
+			launchFailures = append(launchFailures, activity)
+		}
+	}
+
+	//klog.V(4).Infof("Scaling activities of ASG %s: %v", asg, activities)
+	klog.V(4).Infof("Launch failures of ASG %s: %v", *asg.AutoScalingGroupName, launchFailures)
+
+	if len(launchFailures) > 0 {
+		return launchFailures[0], nil
+	}
+
+	return nil, nil
 }
 
 func (m *autoScalingWrapper) getAutoscalingGroupNamesByTags(kvs map[string]string) ([]string, error) {

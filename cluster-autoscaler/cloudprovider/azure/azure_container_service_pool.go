@@ -551,3 +551,8 @@ func (agentPool *ContainerServiceAgentPool) Delete() error {
 func (agentPool *ContainerServiceAgentPool) Autoprovisioned() bool {
 	return false
 }
+
+// CanProvideCapacity not implemented
+func (agentPool *ContainerServiceAgentPool) CanProvideCapacity() (bool, error) {
+	return false, cloudprovider.ErrNotImplemented
+}
